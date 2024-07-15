@@ -69,7 +69,11 @@ agent --local --planner gemma2 --executor gemma2 --query "What happened to donal
 ```
 Output:
 ```text
-A shooting occurred at a Donald Trump campaign rally in Pennsylvania on July 14, 2024.  The details of the incident and the perpetrator's motives are still unfolding.  Major news outlets like CNN, USA Today, AP News, and BBC are providing updates on the situation. To get the most current information, I recommend checking those sources directly. 
+Based on the provided information from CNN and The New York Times, former President Donald Trump was involved in a shooting at a rally in Butler, Pennsylvania on July 13, 2024. 
+
+He was reportedly rushed off stage with blood on his ear and face. While the Secret Service confirmed he is safe, details about the incident and the shooter are still emerging.
+
+It's important to note that information about this event is rapidly developing and may change. To get the most up-to-date information, it's best to refer to reliable news sources. 
 ```
 ---
 Input:
@@ -90,10 +94,26 @@ You can find more information about Avi Lumelsky and his work on his LinkedIn pr
 ---
 Input:
 ```shell
-agent --planner gpt-4o --executor gpt-3.5-turbo --verbose --query "What are the top trending models names on huggingface trending page?" --sleep 1
+agent --local --planner gemma2 --executor gemma2 --query "What are the trending models on huggingface right now?"
 ```
 Output:
 ```text
-The top trending model names on the Hugging Face trending page include controlnet-union-sdxl-1.0, Kolors, AuraFlow, stable-diffusion-3-medium, NuminaMath-7B-TIR, and many others.
+Here are some of the trending models on HuggingFace right now, across various categories like text generation, image generation, and question answering:
+
+* **Text Generation:** 
+    * Qwen2-72B-Instruct 
+    * Mixtral-8x7B-Instruct-v0.1
+    * Gemma-2-9b-it
+    * Gemma-2-27b-it
+* **Image Generation:**
+    * Stable Diffusion XL-Base 1.0
+    * Kolors
+    * AuraFlow
+    * Stable Diffusion 3-Medium
+* **Other:**
+    * Microsoft's Florence-2-large (Image-Text-to-Text)
+    * OpenAI's Whisper-large-v3 (Automatic Speech Recognition)
+
+Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website. 
 ```
 ---

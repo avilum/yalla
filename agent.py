@@ -14,8 +14,16 @@ import tempfile
 import requests
 import openai
 import docker
+from prompts import (
+    AVAILABLE_TOOLS,
+    BREAK_DOWN_TO_STEPS_PROMPT,
+    LLM_QUERY_TOOL_PROMPT,
+    NEXT_STEP_PROMPT,
+    PREPARE_FINAL_OUTPUT_PROMPT,
+)
 import selenium.webdriver
 from bs4 import BeautifulSoup
+from abc import ABC, abstractmethod
 
 
 ################################################################## CONFIGURATION ###################################################################
@@ -46,94 +54,7 @@ class COLORS:
     CYAN = "\033[96m"
 
 
-################################################################## PROMPTS #########################################################################
-AVAILABLE_TOOLS = """
-Tools Available:
-
-1. **create_text_file:** Creates a text file inside the ubuntu terminal container. 
-   *Example:* `create_text_file: my_file.txt, Hello World!`
-
-2. **ubuntu_terminal:** Runs bash commands within a Ubuntu terminal environment.
-   *Warning:* Always use absolute paths and double quotes. Don't use `sudo` or `docker`. Each command runs in a new terminal.
-   *Example:* `git clone https://github.com/some/repo && ...`
-   *Example:* `ubuntu_terminal: ls -l /workdir && ps aux`
-
-3. **web_browser:** Accesses websites and retrieves their HTML content.
-   *Warning:* Always start URLs with "https://".
-   *Warning:* Use duckduckgo to search.
-   *Example:* `web_browser: https://www.wikipedia.org/`
-   *Example:* `web_browser: Hugging Face New Models`
-   *Example:* `web_browser: Who is ...`
-
-4. **llm_query:** Sends prompts to a large language model (LLM) and receives its responses.
-   *Example:* `llm_query: What is the capital of France?` 
-   *Example:* `llm_query: What are the top models based on the given context?` 
-"""
-####################################################################################################################################################
-BREAK_DOWN_TO_STEPS_PROMPT = """
-##
-**Instructions:**
-You are a helpful assistant who solves problems step-by-step using the tools provided. Your goal is to create a simple and concise plan with as few steps as possible. 
-
-**Input:**
-* **Tools:** {available_tools}
-* **Task:** {user_query}
-
-**Output:**
-A numbered list of steps outlining your plan. Each step should be brief and specific. Separate each step with a new line.
-
-**Example:**
-1. Use the web_browser tool to search for "population of Tokyo".
-2. Use the llm_query tool to summarize the information and answer the question "What is the population of Tokyo?".
-3. done.
-"""
-####################################################################################################################################################
-LLM_QUERY_TOOL_PROMPT = """
-You are a helpful assistant with access to these tools: {available_tools} 
-
-Here's what you've done so far:
-* Tool history: 
-```{tool_call_history}```
-* Last input:
-```{last_step}```
-* Last output:
-```{last_output}```
-
-Your task is:
-```{task}```
-Provide a concise answer to the task using the information from the tools.
-
-Concise Answer:
-"""
-####################################################################################################################################################
-NEXT_STEP_PROMPT = """
-You are a problem-solving assistant that chooses the next step.
-You have access to these tools: {available_tools}
-
-Here's what you've done so far:
-* Steps taken: {steps_done}/{max_steps}
-* Previous steps and tool outputs: {call_history}
-* Last input: {last_step}
-* Last output: {last_output}
-* Plan: {llm_plan}
-
-* Your TOP LEVEL TASK: {user_query}
-Now, call exactly ONE of the available tools, using JSON format.
-Never repeat previous steps. Don't make up things.
-You MUST return nothing but the following JSON object: {{"tool_name": "...", "tool_arguments": "..."}}
-If the task is complete, simply reply "done". Be concise. 
-"""
-####################################################################################################################################################
-PREPARE_FINAL_OUTPUT_PROMPT = """
-The last tool output was: {last_output}
-You have finished solving the task: {user_query}
-Based on this, provide a clear and concise final answer to the user's request.
-Final Output:
-"""
-####################################################################################################################################################
-
-
-class LLMAgent:
+class AbstractLLMAgent(ABC):
     def __init__(
         self,
         docker_client: docker.DockerClient,
@@ -151,7 +72,6 @@ class LLMAgent:
         self._openai_client = openai_client
         self._planner_model_name = planner_model_name
         self._executor_model_name = executor_model_name
-
         self._available_tools = available_tools
         self._llm__query_tool_prompt = llm_query_tool_prompt
         self._next_step_prompt = next_step_prompt
@@ -160,6 +80,52 @@ class LLMAgent:
         self.driver: selenium.webdriver = None
         self.container: docker.Container = None
         self._terminal_initialized = False
+
+    @abstractmethod
+    def run_task(
+        self, user_query: str, max_steps: int, sleep_seconds_between_steps: float
+    ):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _create_text_file(self, file_name: str, file_content: str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _run_terminal_command(self, command):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _initialize_container(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _break_down_to_steps(self, user_query):
+        raise NotImplementedError
+
+
+class LLMAgent(AbstractLLMAgent):
+    def __init__(
+        self,
+        docker_client: docker.DockerClient,
+        openai_client: openai.OpenAI,
+        planner_model_name: str,
+        executor_model_name: str,
+        available_tools=AVAILABLE_TOOLS,
+        llm_query_tool_prompt=LLM_QUERY_TOOL_PROMPT,
+        next_step_prompt=NEXT_STEP_PROMPT,
+        break_down_to_steps_prompt=BREAK_DOWN_TO_STEPS_PROMPT,
+    ):
+        super().__init__(
+            docker_client=docker_client,
+            openai_client=openai_client,
+            planner_model_name=planner_model_name,
+            executor_model_name=executor_model_name,
+            available_tools=available_tools,
+            llm_query_tool_prompt=llm_query_tool_prompt,
+            next_step_prompt=next_step_prompt,
+            break_down_to_steps_prompt=break_down_to_steps_prompt,
+        )
 
     def run_task(
         self, user_query: str, max_steps: int, sleep_seconds_between_steps: float
@@ -232,10 +198,15 @@ class LLMAgent:
             match tool_name:
                 case "create_text_file":
                     cmd_input = tool_arguments
-                    delimiter_idx = cmd_input.index(",")
-                    file_name = cmd_input[:delimiter_idx]
-                    content = cmd_input[delimiter_idx + 1 :]
-                    step_output = self._create_text_file(str(file_name), str(content))
+                    try:
+                        delimiter_idx = cmd_input.index(",")
+                        file_name = cmd_input[:delimiter_idx]
+                        content = cmd_input[delimiter_idx + 1 :]
+                        step_output = self._create_text_file(
+                            str(file_name), str(content)
+                        )
+                    except Exception as e:
+                        step_output = str(e)
                 case "ubuntu_terminal":
                     step_output = self._run_terminal_command(str(tool_arguments))
                 case "web_browser":
@@ -279,8 +250,7 @@ class LLMAgent:
         )
         step_output = self._communicate_with_llm(final_str_prompt)
         last_output = step_output
-
-        print(f"{os.linesep}Agent Output:")
+        logging.info(f"Final Output:{os.linesep}{last_output}")
         print(f"{COLORS.GREEN}{last_output}{COLORS.DEFAULT}")
         print("🤖 Thanks for trying LLM Agent 🤖")
 
@@ -300,8 +270,9 @@ class LLMAgent:
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file.write(file_content.encode())
 
+        target_path: str = f"{file_name.lstrip()}"
         subprocess.run(
-            f'docker cp "{temp_file.name}" {self.container.id}:{file_name.lstrip()}',
+            f'docker cp "{temp_file.name}" {self.container.id}:{target_path}',
             shell=True,
             check=True,
         )
@@ -500,8 +471,6 @@ class LLMAgent:
             user_query=user_query,
             llm_plan=llm_plan,
             call_history=call_history,
-            last_step=last_step,
-            last_output=last_output,
             steps_done=steps_done,
             max_steps=max_steps,
         )
@@ -564,7 +533,7 @@ def main(
     # Set up Docker API client
     # docker_client: docker.DockerClient = docker.DockerClient()
     docker_client: docker.DockerClient = docker.DockerClient(
-        "unix:///Users/avi/.colima/default/docker.sock"
+        # "unix:///Users/avi/.colima/default/docker.sock"
     )
     if should_use_local_llm:
         openai_client: openai.OpenAI = openai.OpenAI(

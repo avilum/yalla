@@ -6,9 +6,12 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Tools](#tools)
-- [Backends](#backends)
+- [Uses OpenAI API specification](#uses-openai-api-specification)
 - [Get Started](#get-started)
-- [Example Runs](#example-runs)
+- [Run the agent completely on device with Ollama](#run-the-agent-completely-on-device-with-ollama)
+- [Run the agent using ChatGPT and OpenAI](#run-the-agent-using-chatgpt-and-openai)
+- [Examples](#examples)
+- [Execution logs and history](#execution-logs-and-history)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 

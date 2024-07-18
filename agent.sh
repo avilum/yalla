@@ -2,5 +2,5 @@
 # Usage: source agent.sh
 
 function agent(){
-  python3 agent.py $*
+  python3.11 agent.py $*
 }

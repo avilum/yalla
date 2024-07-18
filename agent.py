@@ -61,6 +61,7 @@ class AbstractLLMAgent(ABC):
         openai_client: openai.OpenAI,
         planner_model_name: str,
         executor_model_name: str,
+        use_jina: bool = False,
         available_tools=AVAILABLE_TOOLS,
         llm_query_tool_prompt=LLM_QUERY_TOOL_PROMPT,
         next_step_prompt=NEXT_STEP_PROMPT,
@@ -77,6 +78,7 @@ class AbstractLLMAgent(ABC):
         self._next_step_prompt = next_step_prompt
         self._break_down_to_steps_prompt = break_down_to_steps_prompt
         self.tool_call_history = []
+        self._use_jina = use_jina
         self.driver: selenium.webdriver = None
         self.container: docker.Container = None
         self._terminal_initialized = False
@@ -111,6 +113,7 @@ class LLMAgent(AbstractLLMAgent):
         openai_client: openai.OpenAI,
         planner_model_name: str,
         executor_model_name: str,
+        use_jina: bool = False,
         available_tools=AVAILABLE_TOOLS,
         llm_query_tool_prompt=LLM_QUERY_TOOL_PROMPT,
         next_step_prompt=NEXT_STEP_PROMPT,
@@ -121,6 +124,7 @@ class LLMAgent(AbstractLLMAgent):
             openai_client=openai_client,
             planner_model_name=planner_model_name,
             executor_model_name=executor_model_name,
+            use_jina=use_jina,
             available_tools=available_tools,
             llm_query_tool_prompt=llm_query_tool_prompt,
             next_step_prompt=next_step_prompt,
@@ -143,28 +147,25 @@ class LLMAgent(AbstractLLMAgent):
         print(llm_step_by_step_plan)
         input(f"{os.linesep}Press any key to continue.{os.linesep}")
 
-        last_output = None
-        last_step = None
-        step_output = None
         i = 0
         while i < max_steps:
             logging.info(f"\n######### Step {i+1} #########")
             logging.info("\nChoosing next step...")
+            step_output = None
             next_step = self._choose_next_step(
                 user_query=user_query,
                 llm_plan=llm_step_by_step_plan,
-                last_step=last_step,
-                last_output=last_output,
                 steps_done=i,
                 max_steps=max_steps,
                 call_history=self.tool_call_history,
             )
+
+            # Early stopping if the LLM marked the task as 'done'
             if next_step[:4].lower().startswith("done"):
                 logging.debug(
                     "The LLM marked the task as 'done', preparing final output."
                 )
-                last_step = next_step
-                last_output = step_output
+                self.add_tool_call_to_history("done", i, "done", "done")
                 break
 
             try:
@@ -175,27 +176,52 @@ class LLMAgent(AbstractLLMAgent):
                 logging.warning(
                     f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'"
                 )
-                continue
 
+            tool_name = None
+            tool_arguments = None
             try:
                 tool_name = step_json["tool_name"]
             except KeyError:
-                logging.warning(
-                    f"Invalid Call! Expected JSON with tool_name and tool_arguments, but tool_name is missing. Got: '{next_step}'"
-                )
-                continue
+                msg = f"Invalid Tool Call! Expected JSON with tool_name and tool_arguments, but tool_name is missing. Got: '{next_step}'"
+                logging.warning(msg)
 
             try:
                 tool_arguments = step_json["tool_arguments"]
             except KeyError:
-                logging.warning(
-                    f"Invalid Call! Expected JSON with tool_name and tool_arguments, but tool_name is missing. Got: '{next_step}'"
-                )
-                continue
+                msg = f"Invalid Tool Call! Expected JSON with tool_name and tool_arguments, but tool_arguments is missing. Got: '{next_step}'"
+                logging.warning(msg)
 
-            logging.info(f"🛠️ Tool: {COLORS.CYAN}{tool_name}{COLORS.DEFAULT}")
-            logging.info(f"🔧 Arguments: {COLORS.CYAN}{tool_arguments}{COLORS.DEFAULT}")
+            if tool_name and tool_arguments:
+                logging.info(f"🛠️ Tool: {COLORS.CYAN}{tool_name}{COLORS.DEFAULT}")
+                logging.info(
+                    f"🔧 Arguments: {COLORS.CYAN}{tool_arguments}{COLORS.DEFAULT}"
+                )
+                step_output = self.tool_call(tool_name, tool_arguments)
+
+            # TODO: Add re-ranking to history, keeping the most relevant steps.
+            # Appending output to history
+            step_output = str(step_output)
+            self.add_tool_call_to_history(step_output, i, tool_name, tool_arguments)
+
+            i += 1
+            logging.debug(f"Sleeping for {sleep_seconds_between_steps} seconds...")
+            sleep(sleep_seconds_between_steps)
+            logging.debug(f"######### Finished step {i} #########")
+
+        # Prepare the final output using llm query
+        final_str_prompt = PREPARE_FINAL_OUTPUT_PROMPT.format(
+            user_query=user_query,
+            tool_call_history=self.tool_call_history,
+        )
+        last_output = self._communicate_with_llm(final_str_prompt)
+        logging.info(f"Final Output:{os.linesep}{last_output}")
+        print(f"{COLORS.GREEN}{last_output}{COLORS.DEFAULT}")
+        print("🤖 Thanks for trying LLM Agent 🤖")
+
+    def tool_call(self, tool_name: str, tool_arguments: str) -> str:
+        try:
             match tool_name:
+                # TODO: Use reflection and OOP classes for tools and to hard-coded tools names.
                 case "create_text_file":
                     cmd_input = tool_arguments
                     try:
@@ -210,13 +236,14 @@ class LLMAgent(AbstractLLMAgent):
                 case "ubuntu_terminal":
                     step_output = self._run_terminal_command(str(tool_arguments))
                 case "web_browser":
-                    step_output = self._browse_page(str(tool_arguments))
+                    if self._use_jina:
+                        step_output = self._fetch_page_content_for_agent(str(tool_arguments))
+                    else:
+                        step_output = self._browse_page(str(tool_arguments))
                 case "llm_query":
                     llm_prompt_with_context = self._llm__query_tool_prompt.format(
                         available_tools=self._available_tools,
                         tool_call_history=self.tool_call_history,
-                        last_step=last_step,
-                        last_output=last_output,
                         task=tool_arguments,
                     )
                     step_output = self._communicate_with_llm(llm_prompt_with_context)
@@ -226,33 +253,20 @@ class LLMAgent(AbstractLLMAgent):
                 case _:
                     step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query. Got: {tool_name}"
                     logging.warning(f"{COLORS.RED}{step_output}{COLORS.DEFAULT}")
-                    i += 1
-                    continue
+            return step_output
+        except Exception as e:
+            logging.fatal(f"Failed to execute tool: {e}")
+            return str(e)
 
-            # TODO: Add re-ranking to history, keeping the most relevant steps.
-            # Appending output to history
-            step_output = str(step_output)
-            self.tool_call_history.append((next_step, step_output))
-
-            last_step = next_step
-            last_output = step_output
-
-            i += 1
-            logging.debug(f"Sleeping for {sleep_seconds_between_steps} seconds...")
-            sleep(sleep_seconds_between_steps)
-            logging.info(f"######### Finished step {i} #########")
-
-        # Prepare the final output using llm query
-        final_str_prompt = PREPARE_FINAL_OUTPUT_PROMPT.format(
-            user_query=user_query,
-            # last_output=last_output
-            last_output=self.tool_call_history,
+    def add_tool_call_to_history(self, step_output, i, tool_name, tool_arguments):
+        self.tool_call_history.append(
+            {
+                "step_number": i,
+                "tool_name": tool_name,
+                "tool_arguments": tool_arguments,
+                "tool_output": step_output,
+            }
         )
-        step_output = self._communicate_with_llm(final_str_prompt)
-        last_output = step_output
-        logging.info(f"Final Output:{os.linesep}{last_output}")
-        print(f"{COLORS.GREEN}{last_output}{COLORS.DEFAULT}")
-        print("🤖 Thanks for trying LLM Agent 🤖")
 
     def _create_text_file(self, file_name: str, file_content: str):
         """
@@ -445,8 +459,6 @@ class LLMAgent(AbstractLLMAgent):
         self,
         user_query,
         llm_plan,
-        last_step,
-        last_output,
         steps_done,
         max_steps,
         call_history,
@@ -529,6 +541,7 @@ def main(
     executor_model_name: str,
     max_steps: int,
     sleep_seconds_between_steps: float,
+    use_jina: bool
 ):
     # Set up Docker API client
     # docker_client: docker.DockerClient = docker.DockerClient()
@@ -549,6 +562,7 @@ def main(
     agent = LLMAgent(
         docker_client=docker_client,
         openai_client=openai_client,
+        use_jina=use_jina,
         planner_model_name=planner_model_name,
         executor_model_name=executor_model_name,
     )
@@ -592,6 +606,11 @@ if __name__ == "__main__":
         type=float,
         default=SLEEP_SECONDS_BETWEEN_STEPS,
     )
+    parser.add_argument(
+        "--use-jina",
+        help="Instead of Selenium, use Jina AI free APIs to fetch page content. WARNING: Jina APIs might fail fetch certain websites.",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     # Set OpenAI logging level
@@ -619,6 +638,7 @@ executor="{executor_model_name}"; Use gemma2 instead. """
 
     max_steps = args.steps
     sleep_seconds_between_steps = args.sleep
+    use_jina = args.use_jina
     main(
         args.query,
         args.local,
@@ -626,4 +646,5 @@ executor="{executor_model_name}"; Use gemma2 instead. """
         executor_model_name,
         max_steps,
         sleep_seconds_between_steps,
+        use_jina=use_jina,
     )

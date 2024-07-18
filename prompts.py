@@ -46,18 +46,13 @@ LLM_QUERY_TOOL_PROMPT = """
 You are a helpful assistant with access to these tools: {available_tools} 
 
 Here's what you've done so far:
-* Tool history: 
+
+* Tool History:
 ```{tool_call_history}```
-* Last input:
-```{last_step}```
-* Last output:
-```{last_output}```
 
-Your task is:
+* User Request:
 ```{task}```
-Provide a concise answer to the task using the information from the tools.
-
-Concise Answer:
+Now, you MUST provide a concise answer to the User Request based on your Tool History.
 """
 
 ####################################################################################################################################################
@@ -72,15 +67,17 @@ You have access to these tools: {available_tools}
 WARNING: NEVER repeat previous steps. NEVER make up things.
 
 * Your TOP LEVEL TASK: {user_query}
-Now, call exactly ONE of the available tools, using JSON format.
+Now, without repeating yourself, call the NEXT tool to complete your task, using JSON format.
 You MUST return ONLY ONE JSON object: {{"tool_name": "...", "tool_arguments": "..."}}
-If you have enough context to complete the task, you MUST reply "done".
+If you are able to answer the TOP LEVEL TASK, you MUST reply "done".
 """
 
 ####################################################################################################################################################
 PREPARE_FINAL_OUTPUT_PROMPT = """
-The last tool output was: {last_output}
-You have finished solving the task: {user_query}
-Based on this, provide a clear and concise final answer to the user's request.
+<Tool History> {tool_call_history}
+</Tool History>
+<User Request>{user_query}
+</User Request>
+NOW, you MUST do your best effort: Answer the User Request based on Tool History above.
 Final Output:
 """

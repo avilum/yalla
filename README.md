@@ -15,13 +15,18 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 ## Tools
 
 1. **ubuntu_terminal:** Runs bash commands inside Ubuntu temporary container via `docker`.
-2. **web_browser:** Accesses websites or search free text, to retrieve the inner text content and links. Uses `selenium` by default, can also use Jina AI's free browsing APIs.
+2. **web_browser:** Accesses websites or search free text, to retrieve the inner text content and links. Uses `selenium` by default. can also use Jina AI's free browsing APIs.
 3. **llm_query:** Communicate with the large language model.
 4. **create_text_file:** Creates a text file inside the container.
 
-## Backends
-- Local (`Ollama` / `llama.cpp`).
-- OpenAI-like API
+## Uses OpenAI API specification
+- Local
+  - <a href="https://ollama.com/">Ollama</a> 
+  - <a href="https://github.com/ggerganov/llama.cpp/server">llama.cpp</a>
+- OpenAI
+  - ```shell
+    export OPENAI_API_KEY="sk-..."
+    ```
 
 ## Get Started
 **Clone:**
@@ -40,20 +45,31 @@ function agent(){
 }
 
 agent --help
+```
 
-# Local backend 
-# ollama pull gemma2 && ollama serve
+## Run the agent completely on device with Ollama
+1. Run ollama
+```shell
+ollama pull gemma2 && ollama serve
+```
+2. Run the agent with `--local`
+```shell
 agent --local --planner gemma2 --executor gemma2 --query "What happened to donald trump?"
 agent --local --planner gemma2 --executor phi3 --query "Who acquired Deci AI"
-agent --local --verbose --steps 7 --query "Create a fastapi app and run it in on port 8082."
-
-# Using OpenAI
-# export OPENAI_API_KEY="sk-..."
+agent --local --verbose --query "Create a fastapi app and run it in on port 8082." --steps 7 
+```
+## Run the agent using ChatGPT and OpenAI
+1. Set the OpenAI API Key:
+```shell
+export OPENAI_API_KEY="sk-..."
+```
+2. Run the agent
+```shell
 agent --query "Who acquired Deci AI"
 agent --planner gpt-4o --executor gpt-3.5-turbo --verbose --query "What are the top trending models on huggingface from last week?"
 ```
 
-## Example Runs
+## Examples
 Input:
 ```shell
 agent --local --planner gemma2 --executor gemma2 --query "Who acquired Deci AI?"
@@ -117,3 +133,7 @@ Here are some of the trending models on HuggingFace right now, across various ca
 Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website. 
 ```
 ---
+## Execution logs and history
+By default all the runs will be logged to the `.runs/` directory.<br>
+
+More examples can be found at the <a href="examples/">/examples</a> folder.

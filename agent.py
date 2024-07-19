@@ -180,7 +180,7 @@ class LLMAgent(AbstractLLMAgent):
             logging.debug(f"######### Finished step {i} #########")
 
         # Prepare the final output using llm query
-        final_str_prompt = self.prompts.prepare_final_output_prompt().format(
+        final_str_prompt = self.prompts.prepare_final_output_prompt(
             user_query=user_query,
             tool_call_history=self.tool_call_history,
         )
@@ -210,8 +210,7 @@ class LLMAgent(AbstractLLMAgent):
                     else:
                         step_output = self._browse_page(str(tool_arguments))
                 case "llm_query":
-                    llm_prompt_with_context = self.prompts.llm_query_tool_prompt().format(
-                        available_tools=self.prompts.available_tools,
+                    llm_prompt_with_context = self.prompts.llm_query_tool_prompt(
                         tool_call_history=self.tool_call_history,
                         task=tool_arguments,
                     )
@@ -308,9 +307,7 @@ class LLMAgent(AbstractLLMAgent):
         self._terminal_initialized = True
 
     def _break_down_to_steps(self, user_query):
-        prompt = self.prompts.break_down_to_steps_prompt().format(
-            available_tools=self.prompts.available_tools, user_query=user_query
-        )
+        prompt = self.prompts.break_down_to_steps_prompt(user_query=user_query)
         step_by_step_tasks_stream = self._openai_client.chat.completions.create(
             model=self._planner_model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -459,8 +456,7 @@ class LLMAgent(AbstractLLMAgent):
         Returns:
             str: The next step to be performed by the agent.
         """
-        prompt = self.prompts.next_step_prompt().format(
-            available_tools=self.prompts.available_tools,
+        prompt = self.prompts.next_step_prompt(
             user_query=user_query,
             llm_plan=llm_plan,
             call_history=call_history,

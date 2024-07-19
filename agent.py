@@ -1,29 +1,27 @@
 import argparse
-import json
-import subprocess
-import os
-import sys
-from time import sleep, time
-from functools import lru_cache
-import pathlib
-import logging
-import urllib.parse
-import string
 import base64
+import json
+import logging
+import os
+import pathlib
+import string
+import subprocess
+import sys
 import tempfile
-import requests
-import openai
+import urllib.parse
+from abc import ABC
+from abc import abstractmethod
+from functools import lru_cache
+from time import sleep
+from time import time
+
 import docker
-from prompts import (
-    AVAILABLE_TOOLS,
-    BREAK_DOWN_TO_STEPS_PROMPT,
-    LLM_QUERY_TOOL_PROMPT,
-    NEXT_STEP_PROMPT,
-    PREPARE_FINAL_OUTPUT_PROMPT,
-)
+import openai
+import requests
 import selenium.webdriver
 from bs4 import BeautifulSoup
-from abc import ABC, abstractmethod
+
+from prompts import Prompts
 
 
 ################################################################## CONFIGURATION ###################################################################
@@ -62,10 +60,6 @@ class AbstractLLMAgent(ABC):
         planner_model_name: str,
         executor_model_name: str,
         use_jina: bool = False,
-        available_tools=AVAILABLE_TOOLS,
-        llm_query_tool_prompt=LLM_QUERY_TOOL_PROMPT,
-        next_step_prompt=NEXT_STEP_PROMPT,
-        break_down_to_steps_prompt=BREAK_DOWN_TO_STEPS_PROMPT,
     ):
         logging.debug("Starting agent...")
         logging.debug(f"Backend: {openai_client.base_url}")
@@ -73,10 +67,7 @@ class AbstractLLMAgent(ABC):
         self._openai_client = openai_client
         self._planner_model_name = planner_model_name
         self._executor_model_name = executor_model_name
-        self._available_tools = available_tools
-        self._llm__query_tool_prompt = llm_query_tool_prompt
-        self._next_step_prompt = next_step_prompt
-        self._break_down_to_steps_prompt = break_down_to_steps_prompt
+        self.prompts = Prompts()
         self.tool_call_history = []
         self._use_jina = use_jina
         self.driver: selenium.webdriver = None
@@ -84,9 +75,7 @@ class AbstractLLMAgent(ABC):
         self._terminal_initialized = False
 
     @abstractmethod
-    def run_task(
-        self, user_query: str, max_steps: int, sleep_seconds_between_steps: float
-    ):
+    def run_task(self, user_query: str, max_steps: int, sleep_seconds_between_steps: float):
         raise NotImplementedError
 
     @abstractmethod
@@ -114,10 +103,6 @@ class LLMAgent(AbstractLLMAgent):
         planner_model_name: str,
         executor_model_name: str,
         use_jina: bool = False,
-        available_tools=AVAILABLE_TOOLS,
-        llm_query_tool_prompt=LLM_QUERY_TOOL_PROMPT,
-        next_step_prompt=NEXT_STEP_PROMPT,
-        break_down_to_steps_prompt=BREAK_DOWN_TO_STEPS_PROMPT,
     ):
         super().__init__(
             docker_client=docker_client,
@@ -125,24 +110,16 @@ class LLMAgent(AbstractLLMAgent):
             planner_model_name=planner_model_name,
             executor_model_name=executor_model_name,
             use_jina=use_jina,
-            available_tools=available_tools,
-            llm_query_tool_prompt=llm_query_tool_prompt,
-            next_step_prompt=next_step_prompt,
-            break_down_to_steps_prompt=break_down_to_steps_prompt,
         )
 
-    def run_task(
-        self, user_query: str, max_steps: int, sleep_seconds_between_steps: float
-    ):
+    def run_task(self, user_query: str, max_steps: int, sleep_seconds_between_steps: float):
         logging.info(f"Starting task: {user_query}")
         llm_step_by_step_plan: list[str] = self._break_down_to_steps(user_query)
         logging.debug(f"Plan: {llm_step_by_step_plan}")
         llm_step_by_step_plan = "\n".join(llm_step_by_step_plan)
 
         print(COLORS.CLEARSCREEN)
-        print(
-            f"# TASK:{os.linesep}{COLORS.GREEN}{user_query}{COLORS.DEFAULT}{os.linesep}"
-        )
+        print(f"# TASK:{os.linesep}{COLORS.GREEN}{user_query}{COLORS.DEFAULT}{os.linesep}")
         print("💭 LLM Plan 💭")
         print(llm_step_by_step_plan)
         input(f"{os.linesep}Press any key to continue.{os.linesep}")
@@ -162,9 +139,7 @@ class LLMAgent(AbstractLLMAgent):
 
             # Early stopping if the LLM marked the task as 'done'
             if next_step[:4].lower().startswith("done"):
-                logging.debug(
-                    "The LLM marked the task as 'done', preparing final output."
-                )
+                logging.debug("The LLM marked the task as 'done', preparing final output.")
                 self.add_tool_call_to_history("done", i, "done", "done")
                 break
 
@@ -173,9 +148,7 @@ class LLMAgent(AbstractLLMAgent):
                 step_json_str = next_step[json_start:json_end]
                 step_json = json.loads(step_json_str)
             except (json.JSONDecodeError, ValueError):
-                logging.warning(
-                    f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'"
-                )
+                logging.warning(f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'")
 
             tool_name = None
             tool_arguments = None
@@ -193,9 +166,7 @@ class LLMAgent(AbstractLLMAgent):
 
             if tool_name and tool_arguments:
                 logging.info(f"🛠️ Tool: {COLORS.CYAN}{tool_name}{COLORS.DEFAULT}")
-                logging.info(
-                    f"🔧 Arguments: {COLORS.CYAN}{tool_arguments}{COLORS.DEFAULT}"
-                )
+                logging.info(f"🔧 Arguments: {COLORS.CYAN}{tool_arguments}{COLORS.DEFAULT}")
                 step_output = self.tool_call(tool_name, tool_arguments)
 
             # TODO: Add re-ranking to history, keeping the most relevant steps.
@@ -209,7 +180,7 @@ class LLMAgent(AbstractLLMAgent):
             logging.debug(f"######### Finished step {i} #########")
 
         # Prepare the final output using llm query
-        final_str_prompt = PREPARE_FINAL_OUTPUT_PROMPT.format(
+        final_str_prompt = self.prompts.prepare_final_output_prompt(
             user_query=user_query,
             tool_call_history=self.tool_call_history,
         )
@@ -228,9 +199,7 @@ class LLMAgent(AbstractLLMAgent):
                         delimiter_idx = cmd_input.index(",")
                         file_name = cmd_input[:delimiter_idx]
                         content = cmd_input[delimiter_idx + 1 :]
-                        step_output = self._create_text_file(
-                            str(file_name), str(content)
-                        )
+                        step_output = self._create_text_file(str(file_name), str(content))
                     except Exception as e:
                         step_output = str(e)
                 case "ubuntu_terminal":
@@ -241,17 +210,16 @@ class LLMAgent(AbstractLLMAgent):
                     else:
                         step_output = self._browse_page(str(tool_arguments))
                 case "llm_query":
-                    llm_prompt_with_context = self._llm__query_tool_prompt.format(
-                        available_tools=self._available_tools,
+                    llm_prompt_with_context = self.prompts.llm_query_tool_prompt(
                         tool_call_history=self.tool_call_history,
                         task=tool_arguments,
                     )
                     step_output = self._communicate_with_llm(llm_prompt_with_context)
-                    logging.info(
-                        f"LLM Output: {COLORS.YELLOW}{step_output}{COLORS.DEFAULT}"
-                    )
+                    logging.info(f"LLM Output: {COLORS.YELLOW}{step_output}{COLORS.DEFAULT}")
+                case "open_api":
+                    step_output = self._call_open_api(json.dumps(tool_arguments))
                 case _:
-                    step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query. Got: {tool_name}"
+                    step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query, open_api. Got: {tool_name}"
                     logging.warning(f"{COLORS.RED}{step_output}{COLORS.DEFAULT}")
             return step_output
         except Exception as e:
@@ -319,14 +287,10 @@ class LLMAgent(AbstractLLMAgent):
             if cmd_output.exit_code != 0:
                 raise Exception(f"ERROR: {cmd_output}")
 
-            logging.info(
-                f"✅ TERMINAL OUTPUT: {COLORS.GREEN}{cmd_output}{COLORS.DEFAULT}"
-            )
+            logging.info(f"✅ TERMINAL OUTPUT: {COLORS.GREEN}{cmd_output}{COLORS.DEFAULT}")
         except Exception as e:
             cmd_output = str(e)
-            logging.info(
-                f"🔴 TERMINAL ERROR: {COLORS.YELLOW}{cmd_output}{COLORS.DEFAULT}"
-            )
+            logging.info(f"🔴 TERMINAL ERROR: {COLORS.YELLOW}{cmd_output}{COLORS.DEFAULT}")
         return cmd_output
 
     def _initialize_container(self):
@@ -343,9 +307,7 @@ class LLMAgent(AbstractLLMAgent):
         self._terminal_initialized = True
 
     def _break_down_to_steps(self, user_query):
-        prompt = self._break_down_to_steps_prompt.format(
-            available_tools=self._available_tools, user_query=user_query
-        )
+        prompt = self.prompts.break_down_to_steps_prompt(user_query=user_query)
         step_by_step_tasks_stream = self._openai_client.chat.completions.create(
             model=self._planner_model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -420,10 +382,7 @@ class LLMAgent(AbstractLLMAgent):
             tag_to_drop.extract()
 
         # Find all <a> tags and get their href attributes
-        links = [
-            (anchor.get_text(strip=True), anchor.get("href"))
-            for anchor in soup.find_all("a")
-        ]
+        links = [(anchor.get_text(strip=True), anchor.get("href")) for anchor in soup.find_all("a")]
 
         text = soup.get_text()
 
@@ -437,9 +396,7 @@ class LLMAgent(AbstractLLMAgent):
         text = "\n".join(chunk for chunk in chunks if chunk)
 
         # Combine text with links for better context
-        text_content_with_links = text + "\n".join(
-            f"*{title}*: {link}" for title, link in links if link
-        )
+        text_content_with_links = text + "\n".join(f"*{title}*: {link}" for title, link in links if link)
         print(text_content_with_links)
         logging.debug("Done browsing.")
         return text_content_with_links
@@ -451,9 +408,31 @@ class LLMAgent(AbstractLLMAgent):
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
-        return self._process_stream_until_complete(
-            current_stream, live_print_to_stdout=True
-        )
+        return self._process_stream_until_complete(current_stream, live_print_to_stdout=True)
+
+    def _call_open_api(self, params: str) -> str:
+        try:
+            params_dict = json.loads(params)
+            url = params_dict["url"]
+            method = params_dict.get("method", "GET").upper()
+            payload = params_dict.get("payload", None)
+            headers = params_dict.get("headers", {})
+
+            if method == "GET":
+                response = requests.get(url, headers=headers)
+            elif method == "POST":
+                response = requests.post(url, json=payload, headers=headers)
+            elif method == "PUT":
+                response = requests.put(url, json=payload, headers=headers)
+            elif method == "DELETE":
+                response = requests.delete(url, headers=headers)
+            else:
+                return "Unsupported HTTP method."
+
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as e:
+            return f"API request failed: {e}"
 
     def _choose_next_step(
         self,
@@ -478,8 +457,7 @@ class LLMAgent(AbstractLLMAgent):
         Returns:
             str: The next step to be performed by the agent.
         """
-        prompt = self._next_step_prompt.format(
-            available_tools=self._available_tools,
+        prompt = self.prompts.next_step_prompt(
             user_query=user_query,
             llm_plan=llm_plan,
             call_history=call_history,
@@ -492,19 +470,13 @@ class LLMAgent(AbstractLLMAgent):
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
-        next_step_str = self._process_stream_until_complete(
-            next_step_response_stream, live_print_to_stdout=False
-        )
-        next_step_str = (
-            next_step_str.strip(" ").strip("-").strip("<").strip(">").strip('"')
-        )
+        next_step_str = self._process_stream_until_complete(next_step_response_stream, live_print_to_stdout=False)
+        next_step_str = next_step_str.strip(" ").strip("-").strip("<").strip(">").strip('"')
         logging.info(f"🤖 Next: {next_step_str}")
         return next_step_str
 
     @staticmethod
-    def _process_stream_until_complete(
-        stream, live_print_to_stdout: bool = False
-    ) -> str:
+    def _process_stream_until_complete(stream, live_print_to_stdout: bool = False) -> str:
         """
         A helper method to process the stream of responses from the OpenAI API.
         """
@@ -541,7 +513,7 @@ def main(
     executor_model_name: str,
     max_steps: int,
     sleep_seconds_between_steps: float,
-    use_jina: bool
+    use_jina: bool,
 ):
     # Set up Docker API client
     # docker_client: docker.DockerClient = docker.DockerClient()
@@ -555,9 +527,7 @@ def main(
             api_key="test",
         )
     else:
-        openai_client: openai.OpenAI = openai.OpenAI(
-            api_key=os.environ["OPENAI_API_KEY"]
-        )
+        openai_client: openai.OpenAI = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
     agent = LLMAgent(
         docker_client=docker_client,
@@ -623,9 +593,7 @@ if __name__ == "__main__":
 
     planner_model_name = args.planner
     executor_model_name = args.executor
-    if args.local and (
-        planner_model_name.startswith("gpt-") or executor_model_name.startswith("gpt-")
-    ):
+    if args.local and (planner_model_name.startswith("gpt-") or executor_model_name.startswith("gpt-")):
         print(
             f"""local backends doesn\'t support GPT models: planner="{planner_model_name}" \
 executor="{executor_model_name}"; Use gemma2 instead. """

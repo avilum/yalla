@@ -217,7 +217,7 @@ class LLMAgent(AbstractLLMAgent):
                     step_output = self._communicate_with_llm(llm_prompt_with_context)
                     logging.info(f"LLM Output: {COLORS.YELLOW}{step_output}{COLORS.DEFAULT}")
                 case "open_api":
-                    step_output = self._call_open_api(json.loads(tool_arguments))
+                    step_output = self._call_open_api(json.dumps(tool_arguments))
                 case _:
                     step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query, open_api. Got: {tool_name}"
                     logging.warning(f"{COLORS.RED}{step_output}{COLORS.DEFAULT}")
@@ -410,12 +410,13 @@ class LLMAgent(AbstractLLMAgent):
         )
         return self._process_stream_until_complete(current_stream, live_print_to_stdout=True)
 
-    def _call_open_api(self, params: dict) -> str:
+    def _call_open_api(self, params: str) -> str:
         try:
-            url = params["url"]
-            method = params.get("method", "GET").upper()
-            payload = params.get("payload", None)
-            headers = params.get("headers", {})
+            params_dict = json.loads(params)
+            url = params_dict["url"]
+            method = params_dict.get("method", "GET").upper()
+            payload = params_dict.get("payload", None)
+            headers = params_dict.get("headers", {})
 
             if method == "GET":
                 response = requests.get(url, headers=headers)

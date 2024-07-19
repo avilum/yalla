@@ -21,10 +21,13 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 2. **web_browser:** Accesses websites or search free text, to retrieve the inner text content and links. Uses `selenium` by default. can also use Jina AI's free browsing APIs.
 3. **llm_query:** Communicate with the large language model.
 4. **create_text_file:** Creates a text file inside the container.
+5. **open_api:** Interacts with an OpenAPI service to fetch data or perform operations.
+   *Example:* `open_api: { "url": "https://api.example.com/data", "method": "GET" }`
+   *Example:* `open_api: { "url": "https://api.example.com/submit", "method": "POST", "payload": { "key": "value" } }`
 
 ## Uses OpenAI API specification
 - Local
-  - <a href="https://ollama.com/">Ollama</a> 
+  - <a href="https://ollama.com/">Ollama</a>
   - <a href="https://github.com/ggerganov/llama.cpp/server">llama.cpp</a>
 - OpenAI
   - ```shell
@@ -59,7 +62,8 @@ ollama pull gemma2 && ollama serve
 ```shell
 agent --local --planner gemma2 --executor gemma2 --query "What happened to donald trump?"
 agent --local --planner gemma2 --executor phi3 --query "Who acquired Deci AI"
-agent --local --verbose --query "Create a fastapi app and run it in on port 8082." --steps 7 
+agent --local --verbose --query "Create a fastapi app and run it in on port 8082." --steps 7
+agent --query 'open_api: {"url": "https://api.example.com/data", "method": "GET"}'
 ```
 ## Run the agent using ChatGPT and OpenAI
 1. Set the OpenAI API Key:
@@ -88,11 +92,11 @@ agent --local --planner gemma2 --executor gemma2 --query "What happened to donal
 ```
 Output:
 ```text
-Based on the provided information from CNN and The New York Times, former President Donald Trump was involved in a shooting at a rally in Butler, Pennsylvania on July 13, 2024. 
+Based on the provided information from CNN and The New York Times, former President Donald Trump was involved in a shooting at a rally in Butler, Pennsylvania on July 13, 2024.
 
 He was reportedly rushed off stage with blood on his ear and face. While the Secret Service confirmed he is safe, details about the incident and the shooter are still emerging.
 
-It's important to note that information about this event is rapidly developing and may change. To get the most up-to-date information, it's best to refer to reliable news sources. 
+It's important to note that information about this event is rapidly developing and may change. To get the most up-to-date information, it's best to refer to reliable news sources.
 ```
 ---
 Input:
@@ -101,14 +105,14 @@ agent --local --planner="gemma2" --executor="gemma2" --query "Tell me about Avi 
 ```
 Output:
 ```text
-Avi Lumelsky is a security researcher at Oligo. 
+Avi Lumelsky is a security researcher at Oligo.
 
 He is actively involved in researching and raising awareness about vulnerabilities in popular AI frameworks, particularly the Ray AI framework.  His work has been featured in prominent tech publications like TechTarget, Security Boulevard, The Register, and VentureBeat.
 
-Lumelsky's research has highlighted critical vulnerabilities that can be exploited to gain control of AI workloads, compute resources, and sensitive data. He is a recognized speaker at cybersecurity conferences like BSidesBUD, where he shares his findings and insights with the broader security community.  
+Lumelsky's research has highlighted critical vulnerabilities that can be exploited to gain control of AI workloads, compute resources, and sensitive data. He is a recognized speaker at cybersecurity conferences like BSidesBUD, where he shares his findings and insights with the broader security community.
 
 
-You can find more information about Avi Lumelsky and his work on his LinkedIn profile and in the articles listed in the provided context. 
+You can find more information about Avi Lumelsky and his work on his LinkedIn profile and in the articles listed in the provided context.
 ```
 ---
 Input:
@@ -119,8 +123,8 @@ Output:
 ```text
 Here are some of the trending models on HuggingFace right now, across various categories like text generation, image generation, and question answering:
 
-* **Text Generation:** 
-    * Qwen2-72B-Instruct 
+* **Text Generation:**
+    * Qwen2-72B-Instruct
     * Mixtral-8x7B-Instruct-v0.1
     * Gemma-2-9b-it
     * Gemma-2-27b-it
@@ -133,7 +137,7 @@ Here are some of the trending models on HuggingFace right now, across various ca
     * Microsoft's Florence-2-large (Image-Text-to-Text)
     * OpenAI's Whisper-large-v3 (Automatic Speech Recognition)
 
-Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website. 
+Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website.
 ```
 ---
 ## Execution logs and history

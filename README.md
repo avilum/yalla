@@ -1,4 +1,4 @@
-# Yet Another LLM Agent
+# Yet Another LLM Agent (yalla)
 A tiny LLM Agent with minimal dependencies, focused on local inference.
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->

@@ -22,8 +22,6 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 3. **llm_query:** Communicate with the large language model.
 4. **create_text_file:** Creates a text file inside the container.
 5. **open_api:** Interacts with an OpenAPI service to fetch data or perform operations.
-   *Example:* `open_api: { "url": "https://api.example.com/data", "method": "GET" }`
-   *Example:* `open_api: { "url": "https://api.example.com/submit", "method": "POST", "payload": { "key": "value" } }`
 
 ## Uses OpenAI API specification
 - Local

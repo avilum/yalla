@@ -35,7 +35,7 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 ## Get Started
 **Clone:**
 ```shell
-git clone https://github.com/avilum/agent.git && cd agent
+git clone https://github.com/avilum/yalla.git && cd yalla
 ```
 **Install:**
 ```shell

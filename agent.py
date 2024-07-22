@@ -27,7 +27,7 @@ from prompts import Prompts
 ################################################################## CONFIGURATION ###################################################################
 MAX_STEPS = 5
 SLEEP_SECONDS_BETWEEN_STEPS = 0
-EXECUTOR_MODEL_NAME = "gpt-3.5-turbo-16k"
+EXECUTOR_MODEL_NAME = "gpt-4o-mini"
 PLANNER_MODEL_NAME = "gpt-4o"
 
 ################################################################## LOGGING ###################################################################
@@ -418,16 +418,17 @@ class LLMAgent(AbstractLLMAgent):
             payload = params_dict.get("payload", None)
             headers = params_dict.get("headers", {})
 
-            if method == "GET":
-                response = requests.get(url, headers=headers)
-            elif method == "POST":
-                response = requests.post(url, json=payload, headers=headers)
-            elif method == "PUT":
-                response = requests.put(url, json=payload, headers=headers)
-            elif method == "DELETE":
-                response = requests.delete(url, headers=headers)
-            else:
-                return "Unsupported HTTP method."
+            match method:
+                case "GET":
+                    response = requests.get(url, headers=headers)
+                case "POST":
+                    response = requests.post(url, json=payload, headers=headers)
+                case "PUT":
+                    response = requests.put(url, json=payload, headers=headers)
+                case "DELETE":
+                    response = requests.delete(url, headers=headers)
+                case _:
+                    return f"Unsupported HTTP method: {_}"
 
             response.raise_for_status()
             return response.text

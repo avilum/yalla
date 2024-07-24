@@ -143,12 +143,14 @@ class LLMAgent(AbstractLLMAgent):
                 self.add_tool_call_to_history("done", i, "done", "done")
                 break
 
+            step_json = {}
             try:
                 json_start, json_end = next_step.index("{"), next_step.rindex("}") + 1
                 step_json_str = next_step[json_start:json_end]
                 step_json = json.loads(step_json_str)
             except (json.JSONDecodeError, ValueError):
-                logging.warning(f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'")
+                msg = f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'"
+                logging.warning(msg)
 
             tool_name = None
             tool_arguments = None

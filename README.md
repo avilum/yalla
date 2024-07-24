@@ -11,6 +11,7 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 - [Run the agent completely on device with Ollama](#run-the-agent-completely-on-device-with-ollama)
 - [Run the agent using ChatGPT and OpenAI](#run-the-agent-using-chatgpt-and-openai)
 - [Examples](#examples)
+    - [Run ShadowRay on a given IP address based on a GIST example payload](#run-shadowray-on-a-given-ip-address-based-on-a-gist-example-payload)
 - [Execution logs and history](#execution-logs-and-history)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->

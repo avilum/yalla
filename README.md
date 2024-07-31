@@ -1,6 +1,8 @@
 # Yet Another LLM Agent (YaLLa)
-A tiny LLM Agent with minimal dependencies, focused on local inference.
-
+A tiny LLM Agent with minimal dependencies, focused on local inference.<br>
+This agent was introduces in a [LangTalks Webinar](https://www.youtube.com/watch?v=BYExD2j_7SY) (30 minutes, Hebrew).
+<br>
+<br>
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*

@@ -164,6 +164,23 @@ Here are some of the trending models on HuggingFace right now, across various ca
 Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website.
 ```
 ---
+Input:
+```shell
+agent --query "What are the new products in WWDC 2024"
+```
+Output:
+```text
+At WWDC 2024, several new products and features were announced. Key highlights include:
+
+1. **iOS 18**: Major updates and new features that enhance user experience.
+2. **macOS Sequoia**: A new operating system for Mac devices, promising better performance and features.
+3. **Apple Intelligence**: A suite of AI tools introduced to improve functionality across products, including a new feature to create custom emojis called Genmoji.
+4. **New Devices**: Introduction of the iPhone 16 and Apple Watch Series 10, with enhancements in hardware and advanced technologies to improve usability.
+5. **AirPods 4**: Updated audio technology and features to enhance user experience.
+
+These announcements reflect Apple’s commitment to innovation, with a strong focus on AI and enhancing user interactivity across its product lineup.
+```
+---
 ## Execution logs and history
 By default all the runs will be logged to the `.runs/` directory.<br>
 

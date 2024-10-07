@@ -63,7 +63,6 @@ ollama pull gemma2 && ollama serve
 agent --local --planner gemma2 --executor gemma2 --query "What happened to donald trump?"
 agent --local --planner gemma2 --executor phi3 --query "Who acquired Deci AI"
 agent --local --verbose --query "Create a fastapi app and run it in on port 8082." --steps 7
-agent --query 'open_api: {"url": "https://api.example.com/data", "method": "GET"}'
 ```
 ## Run the agent using ChatGPT and OpenAI
 1. Set the OpenAI API Key:

@@ -1,6 +1,7 @@
 # Yet Another LLM Agent (YaLLa)
-A tiny LLM Agent with minimal dependencies, focused on local inference.
-
+A tiny LLM Agent with minimal dependencies, focused on local inference.<br>
+This agent was introduces in a [LangTalks Webinar](https://www.youtube.com/watch?v=BYExD2j_7SY) (30 minutes, Hebrew).
+<br>
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
@@ -17,17 +18,17 @@ A tiny LLM Agent with minimal dependencies, focused on local inference.
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 ## Tools
-
+It determines automatically whether to use the tool API. If tool calling is not supported by the model, it uses zero-shot prompting.
 1. **ubuntu_terminal:** Runs bash commands inside Ubuntu temporary container via `docker`.
 2. **web_browser:** Accesses websites or search free text, to retrieve the inner text content and links. Uses `selenium` by default. can also use Jina AI's free browsing APIs.
 3. **llm_query:** Communicate with the large language model.
 4. **create_text_file:** Creates a text file inside the container.
-5. **open_api:** Interacts with an OpenAPI service to fetch data or perform operations.
 
 ## Uses OpenAI API specification
 - Local
   - <a href="https://ollama.com/">Ollama</a>
   - <a href="https://github.com/ggerganov/llama.cpp/server">llama.cpp</a>
+  - ...
 - OpenAI
   - ```shell
     export OPENAI_API_KEY="sk-..."
@@ -74,7 +75,12 @@ export OPENAI_API_KEY="sk-..."
 agent --query "Who acquired Deci AI"
 agent --planner gpt-4o --executor gpt-3.5-turbo --verbose --query "What are the top trending models on huggingface from last week?"
 ```
-## Examples
+
+## Execution logs and history
+By default all the runs will be logged to the `.runs/` directory.<br>
+More examples can be found at the <a href="examples/">/examples</a> folder.
+
+# Examples
 Input:
 ```shell
 agent --local --planner="gemma2:27b" --executor="gemma2" --query "What is the latest blog post by brendan gregg"
@@ -162,7 +168,21 @@ Here are some of the trending models on HuggingFace right now, across various ca
 Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website.
 ```
 ---
+Input:
+```shell
+agent --query "What are the new products in WWDC 2024"
+```
+Output:
+```text
+At WWDC 2024, several new products and features were announced. Key highlights include:
 
+1. **iOS 18**: Major updates and new features that enhance user experience.
+2. **macOS Sequoia**: A new operating system for Mac devices, promising better performance and features.
+3. **Apple Intelligence**: A suite of AI tools introduced to improve functionality across products, including a new feature to create custom emojis called Genmoji.
+4. **New Devices**: Introduction of the iPhone 16 and Apple Watch Series 10, with enhancements in hardware and advanced technologies to improve usability.
+5. **AirPods 4**: Updated audio technology and features to enhance user experience.
+
+These announcements reflect Apple’s commitment to innovation, with a strong focus on AI and enhancing user interactivity across its product lineup.
 ```
 ---
 Input:
@@ -184,8 +204,3 @@ As for the specific model numbers mentioned (e.g., iPhone 16, iPhone 15, iPhone 
 Is there anything else I can help you with?
 ```
 ---
-
-## Execution logs and history
-By default all the runs will be logged to the `.runs/` directory.<br>
-
-More examples can be found at the <a href="examples/">/examples</a> folder.

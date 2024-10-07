@@ -162,6 +162,29 @@ Here are some of the trending models on HuggingFace right now, across various ca
 Keep in mind that trends change rapidly!  You can explore the full list and sort by popularity on the HuggingFace website.
 ```
 ---
+
+```
+---
+Input:
+```shell
+agent --local --planner=llama3.2 --executor=llama3.2 --query "What is new in the next iphone?"
+```
+Output:
+```text
+Based on the previous iPhone models and their features, here are some potential new features that may come with the next iPhone:
+
+1. Improved Cameras: The upcoming iPhone is expected to have a higher-quality camera system, possibly with a periscope lens for better zoom capabilities.
+2. Faster Processor: Apple is likely to upgrade the processor to provide faster performance and improved power efficiency.
+3. Longer Battery Life: With continued progress in battery technology, the next iPhone may offer longer battery life, allowing users to use their devices for extended periods without needing to recharge.
+4. Enhanced Display: The iPhone is expected to feature an upgraded display with higher refresh rates, potentially up to 120Hz, and improved color accuracy.
+5. Improved Biometric Security: Apple may introduce new biometric security features, such as advanced facial recognition or in-display fingerprint scanning.
+
+As for the specific model numbers mentioned (e.g., iPhone 16, iPhone 15, iPhone 14), it's difficult to say exactly which features will come with each model without official announcements from Apple. However, based on previous trends and leaks, it's likely that the next iPhone will offer significant improvements in camera quality, performance, and display capabilities.
+
+Is there anything else I can help you with?
+```
+---
+
 ## Execution logs and history
 By default all the runs will be logged to the `.runs/` directory.<br>
 

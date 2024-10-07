@@ -21,11 +21,12 @@ import requests
 import selenium.webdriver
 from bs4 import BeautifulSoup
 
-from prompts import Prompts
+from prompts import LlamaPrompts
+from prompts import PromptBase
 
 
 ################################################################## CONFIGURATION ###################################################################
-MAX_STEPS = 5
+MAX_STEPS = 3
 SLEEP_SECONDS_BETWEEN_STEPS = 0
 EXECUTOR_MODEL_NAME = "gpt-4o-mini"
 PLANNER_MODEL_NAME = "gpt-4o"
@@ -59,6 +60,7 @@ class AbstractLLMAgent(ABC):
         openai_client: openai.OpenAI,
         planner_model_name: str,
         executor_model_name: str,
+        prompt: PromptBase,
         use_jina: bool = False,
     ):
         logging.debug("Starting agent...")
@@ -67,9 +69,10 @@ class AbstractLLMAgent(ABC):
         self._openai_client = openai_client
         self._planner_model_name = planner_model_name
         self._executor_model_name = executor_model_name
-        self.prompts = Prompts()
+        self.prompts = prompt
         self.tool_call_history = []
         self._use_jina = use_jina
+        self._use_tools = True  # Automatically determined and set to false if the model does not support tool calling
         self.driver: selenium.webdriver = None
         self.container: docker.Container = None
         self._terminal_initialized = False
@@ -102,6 +105,7 @@ class LLMAgent(AbstractLLMAgent):
         openai_client: openai.OpenAI,
         planner_model_name: str,
         executor_model_name: str,
+        prompt: PromptBase,
         use_jina: bool = False,
     ):
         super().__init__(
@@ -109,10 +113,18 @@ class LLMAgent(AbstractLLMAgent):
             openai_client=openai_client,
             planner_model_name=planner_model_name,
             executor_model_name=executor_model_name,
+            prompt=prompt,
             use_jina=use_jina,
         )
 
-    def run_task(self, user_query: str, max_steps: int, sleep_seconds_between_steps: float):
+    def run_task(
+        self,
+        user_query: str,
+        max_steps: int,
+        sleep_seconds_between_steps: float,
+        requires_manual_approval: bool = True,
+        summarize_intermediate_steps: bool = False,
+    ):
         logging.info(f"Starting task: {user_query}")
         llm_step_by_step_plan: list[str] = self._break_down_to_steps(user_query)
         logging.debug(f"Plan: {llm_step_by_step_plan}")
@@ -122,14 +134,17 @@ class LLMAgent(AbstractLLMAgent):
         print(f"# TASK:{os.linesep}{COLORS.GREEN}{user_query}{COLORS.DEFAULT}{os.linesep}")
         print("💭 LLM Plan 💭")
         print(llm_step_by_step_plan)
-        input(f"{os.linesep}Press any key to continue.{os.linesep}")
+
+        if requires_manual_approval:
+            input(f"{os.linesep}Press any key to continue...")
+            print(os.linesep)
 
         i = 0
         while i < max_steps:
-            logging.info(f"\n######### Step {i+1} #########")
-            logging.info("\nChoosing next step...")
+            logging.info(f"\n\n######### Step {i+1} #########")
+            logging.debug("Choosing next step...")
             step_output = None
-            next_step = self._choose_next_step(
+            next_step, tool_call, arguments = self._choose_next_step(
                 user_query=user_query,
                 llm_plan=llm_step_by_step_plan,
                 steps_done=i,
@@ -138,43 +153,107 @@ class LLMAgent(AbstractLLMAgent):
             )
 
             # Early stopping if the LLM marked the task as 'done'
-            if next_step[:4].lower().startswith("done"):
+            if next_step and next_step[:4].lower().startswith("done"):
                 logging.debug("The LLM marked the task as 'done', preparing final output.")
                 self.add_tool_call_to_history("done", i, "done", "done")
                 break
 
-            step_json = {}
-            try:
-                json_start, json_end = next_step.index("{"), next_step.rindex("}") + 1
-                step_json_str = next_step[json_start:json_end]
-                step_json = json.loads(step_json_str)
-            except (json.JSONDecodeError, ValueError):
-                msg = f"Invalid Call! Expected JSON with tool_name and tool_arguments. Got: '{next_step}'"
-                logging.warning(msg)
+            if tool_call and arguments:
+                logging.info("[Tool Call Response]")
+                # After function calling support in the API
+                tool_name, tool_arguments = tool_call, arguments
+            else:
+                logging.info("[Message Response]")
+                # Before function calling support in the API
+                step_json = {}
+                try:
+                    json_start, json_end = (
+                        next_step.index("{"),
+                        next_step.rindex("}") + 1,
+                    )
+                    step_json_str = next_step[json_start:json_end]
+                    step_json = json.loads(step_json_str)
+                except (json.JSONDecodeError, ValueError):
+                    msg = f"Invalid Call! Expected JSON with name and arguments. Got: '{next_step}'"
+                    logging.warning(msg)
 
-            tool_name = None
-            tool_arguments = None
-            try:
-                tool_name = step_json["tool_name"]
-            except KeyError:
-                msg = f"Invalid Tool Call! Expected JSON with tool_name and tool_arguments, but tool_name is missing. Got: '{next_step}'"
-                logging.warning(msg)
+                tool_name = None
+                tool_arguments = None
+                try:
+                    tool_name = step_json["name"]
+                except KeyError:
+                    msg = f"Invalid Tool Call! Expected JSON with name and arguments, but 'name' is missing. Got: '{next_step}'"
+                    logging.warning(msg)
 
-            try:
-                tool_arguments = step_json["tool_arguments"]
-            except KeyError:
-                msg = f"Invalid Tool Call! Expected JSON with tool_name and tool_arguments, but tool_arguments is missing. Got: '{next_step}'"
-                logging.warning(msg)
+                try:
+                    tool_arguments = step_json["arguments"]
+                except KeyError:
+                    msg = f"Invalid Tool Call! Expected JSON with name and arguments, but 'arguments' is missing. Got: '{next_step}'"
+                    logging.warning(msg)
+
+            # The LLM is repeating itself
+            if self.tool_call_history:
+                duplicate_calls = (
+                    self.tool_call_history[-1]["tool_name"] == tool_name
+                    and self.tool_call_history[-1]["tool_arguments"] == tool_arguments
+                )
+                if duplicate_calls:
+                    i += 1
+                    self.add_tool_call_to_history(
+                        step_output="Repeated tool call! Use different arguments.",
+                        i=i,
+                        tool_name=tool_name,
+                        tool_arguments=tool_arguments,
+                    )
+                    logging.warning(f"Repeated tool call - retrying step {i}...")
+                    continue
 
             if tool_name and tool_arguments:
-                logging.info(f"🛠️ Tool: {COLORS.CYAN}{tool_name}{COLORS.DEFAULT}")
+                logging.info(f"🛠️ Tool:      {COLORS.CYAN}{tool_name}{COLORS.DEFAULT}")
                 logging.info(f"🔧 Arguments: {COLORS.CYAN}{tool_arguments}{COLORS.DEFAULT}")
                 step_output = self.tool_call(tool_name, tool_arguments)
+            else:
+                logging.warning(f"No tool was invoked in step {i}")
 
-            # TODO: Add re-ranking to history, keeping the most relevant steps.
+            if not step_output:
+                i += 1
+                logging.warning(f"Retrying step {i}...")
+                continue
+
             # Appending output to history
+            if summarize_intermediate_steps:
+                step_output = self._communicate_with_llm(
+                    prompt=f"""
+                                                     <tool_name>{tool_name}</tool_name>
+                                                     <tool_arguments>{tool_arguments}</tool_arguments>
+                                                     <tool_output>{step_output}</tool_output>
+                                                     Summarize tool_output and keep the most important and relevant information that can help to solve the task: "{user_query}" in the next step.
+                                                     Consice Markdown:
+                                                     """,
+                    #  max_tokens=256,
+                    use_tools=False,
+                )
+                # Think step by step concisely.
+
             step_output = str(step_output)
             self.add_tool_call_to_history(step_output, i, tool_name, tool_arguments)
+
+            # if summarize_intermediate_steps:
+            is_done = self._communicate_with_llm(
+                prompt=f"""
+                                                    <tools_history>{self.tool_call_history}</tools_history>
+                                                    <tool_output>{step_output}</tool_output>
+                                                    Based on the tool_history and tool_output, was the TASK completed successfully?
+                                                    TASK: "{user_query}."
+                                                    Answer: yes OR no.
+                                                    """,
+                max_tokens=3,
+                use_tools=False,
+            )
+
+            logging.info(f"done? {is_done}")
+            if "yes" in is_done.lower():
+                break
 
             i += 1
             logging.debug(f"Sleeping for {sleep_seconds_between_steps} seconds...")
@@ -186,31 +265,37 @@ class LLMAgent(AbstractLLMAgent):
             user_query=user_query,
             tool_call_history=self.tool_call_history,
         )
-        last_output = self._communicate_with_llm(final_str_prompt)
-        logging.info(f"Final Output:{os.linesep}{last_output}")
-        print(f"{COLORS.GREEN}{last_output}{COLORS.DEFAULT}")
+        last_output = self._communicate_with_llm(final_str_prompt, use_tools=False)
+        logging.info(f"Final Output:{os.linesep*2}{last_output}")
+        print(f"{COLORS.GREEN}{os.linesep*2}{last_output}{COLORS.DEFAULT}")
         print("🤖 Thanks for trying LLM Agent 🤖")
 
     def tool_call(self, tool_name: str, tool_arguments: str) -> str:
         try:
+            tool_name = tool_name.replace("*", "").replace('"', "").strip()
             match tool_name:
                 # TODO: Use reflection and OOP classes for tools and to hard-coded tools names.
                 case "create_text_file":
-                    cmd_input = tool_arguments
+                    # cmd_input = tool_arguments
                     try:
-                        delimiter_idx = cmd_input.index(",")
-                        file_name = cmd_input[:delimiter_idx]
-                        content = cmd_input[delimiter_idx + 1 :]
-                        step_output = self._create_text_file(str(file_name), str(content))
+                        # delimiter_idx = cmd_input.index(",")
+                        # file_name = cmd_input[:delimiter_idx]
+                        # content = cmd_input[delimiter_idx + 1 :]
+                        file_name = tool_arguments["file_name"]
+                        file_content = tool_arguments["file_content"]
+                        step_output = self._create_text_file(str(file_name), str(file_content))
                     except Exception as e:
                         step_output = str(e)
                 case "ubuntu_terminal":
-                    step_output = self._run_terminal_command(str(tool_arguments))
+                    step_output = self._run_terminal_command(**tool_arguments)
                 case "web_browser":
                     if self._use_jina:
-                        step_output = self._fetch_page_content_for_agent(str(tool_arguments))
+                        step_output = self._fetch_page_content_for_agent(**tool_arguments)
                     else:
-                        step_output = self._browse_page(str(tool_arguments))
+                        if isinstance(tool_arguments, dict):
+                            step_output = self._browse_page(**tool_arguments)
+                        else:
+                            step_output = self._browse_page(tool_arguments)
                 case "llm_query":
                     llm_prompt_with_context = self.prompts.llm_query_tool_prompt(
                         tool_call_history=self.tool_call_history,
@@ -218,15 +303,13 @@ class LLMAgent(AbstractLLMAgent):
                     )
                     step_output = self._communicate_with_llm(llm_prompt_with_context)
                     logging.info(f"LLM Output: {COLORS.YELLOW}{step_output}{COLORS.DEFAULT}")
-                case "open_api":
-                    step_output = self._call_open_api(json.dumps(tool_arguments))
                 case _:
-                    step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query, open_api. Got: {tool_name}"
+                    step_output = f"Bad Tool Call! Expected one of: create_text_file, ubuntu_terminal, web_browser, llm_query. Got: {tool_name}"
                     logging.warning(f"{COLORS.RED}{step_output}{COLORS.DEFAULT}")
             return step_output
         except Exception as e:
             logging.fatal(f"Failed to execute tool: {e}")
-            return str(e)
+            raise
 
     def add_tool_call_to_history(self, step_output, i, tool_name, tool_arguments):
         self.tool_call_history.append(
@@ -278,7 +361,7 @@ class LLMAgent(AbstractLLMAgent):
 
         # Encoding the command to base64 to avoid escaping errors with code and multi-lines.
         base64_command = base64.b64encode(command.encode()).decode()
-        bash_command = f"""/bin/bash -c 'echo {base64_command} | base64 -d | bash'"""
+        bash_command = f"""/bin/bash -c 'echo {base64_command} | base64 -d | bash' &"""
 
         try:
             cmd_output = self.container.exec_run(
@@ -305,19 +388,16 @@ class LLMAgent(AbstractLLMAgent):
             remove=True,
             detach=True,
         )
-        self.container.exec_run("apt update -y && apt-get install sudo cd -y")
+        self.container
+        self.container.exec_run("apt update")
+        self.container.exec_run("apt-get install -y sudo net-tools")
         self._terminal_initialized = True
 
     def _break_down_to_steps(self, user_query):
         prompt = self.prompts.break_down_to_steps_prompt(user_query=user_query)
-        step_by_step_tasks_stream = self._openai_client.chat.completions.create(
-            model=self._planner_model_name,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-        )
-        llm_step_by_step_plan_text = self._process_stream_until_complete(
-            stream=step_by_step_tasks_stream, live_print_to_stdout=True
-        )
+
+        # TODO: support models without tool calling
+        llm_step_by_step_plan_text = self._communicate_with_llm(model_name=self._planner_model_name, prompt=prompt)
         return [_ for _ in llm_step_by_step_plan_text.split("\n") if _]
 
     @lru_cache(maxsize=128)
@@ -341,10 +421,10 @@ class LLMAgent(AbstractLLMAgent):
 
         url = f"https://s.jina.ai/{url}"  # Jina Search API (free)
         try:
-            res = requests.get(url, stream=True, timeout=10)
+            res = requests.get(url, timeout=15)
             res.raise_for_status()
             res = res.text
-            print(res)
+            # print(res)
             return res
         except Exception as e:
             return str(e)
@@ -399,43 +479,51 @@ class LLMAgent(AbstractLLMAgent):
 
         # Combine text with links for better context
         text_content_with_links = text + "\n".join(f"*{title}*: {link}" for title, link in links if link)
-        print(text_content_with_links)
+        logging.debug(text_content_with_links)
         logging.debug("Done browsing.")
         return text_content_with_links
 
-    def _communicate_with_llm(self, prompt):
+    def _communicate_with_llm(
+        self,
+        prompt,
+        max_tokens=1024,
+        model_name=None,
+        use_tools=True,
+        stream=True,
+        return_response_content=True,
+    ):
         logging.debug(f"🤖 Communicating with LLM, prompt: {prompt}")
-        current_stream = self._openai_client.chat.completions.create(
-            model=self._executor_model_name,
+        model_name = model_name or self._executor_model_name
+        if self._use_tools and use_tools:
+            try:
+                openai_response = self._openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    tools=self.prompts.available_tools,
+                    max_completion_tokens=max_tokens,
+                    stream=stream,
+                )
+                if return_response_content:
+                    return self._process_stream_until_complete(openai_response, live_print_to_stdout=True)
+                return openai_response
+            except openai.BadRequestError as e:
+                if "does not support tools" in str(e):
+                    self._use_tools = False
+                    logging.debug(
+                        f"The model {model_name} does not support tools, so tool calling API will not be used."
+                    )
+                else:
+                    raise
+
+        openai_response = self._openai_client.chat.completions.create(
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
-            stream=True,
+            max_completion_tokens=max_tokens,
+            stream=stream,
         )
-        return self._process_stream_until_complete(current_stream, live_print_to_stdout=True)
-
-    def _call_open_api(self, params: str) -> str:
-        try:
-            params_dict = json.loads(params)
-            url = params_dict["url"]
-            method = params_dict.get("method", "GET").upper()
-            payload = params_dict.get("payload", None)
-            headers = params_dict.get("headers", {})
-
-            match method:
-                case "GET":
-                    response = requests.get(url, headers=headers)
-                case "POST":
-                    response = requests.post(url, json=payload, headers=headers)
-                case "PUT":
-                    response = requests.put(url, json=payload, headers=headers)
-                case "DELETE":
-                    response = requests.delete(url, headers=headers)
-                case _:
-                    return f"Unsupported HTTP method: {_}"
-
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as e:
-            return f"API request failed: {e}"
+        if return_response_content:
+            return self._process_stream_until_complete(openai_response, live_print_to_stdout=True)
+        return openai_response
 
     def _choose_next_step(
         self,
@@ -446,7 +534,7 @@ class LLMAgent(AbstractLLMAgent):
         call_history,
     ):
         """
-        Chooses the next step for the LLM agent based on the given parameters.
+        Chooses the next step for the LLM agent based on the given arguments.
 
         Args:
             user_query (str): The user's query.
@@ -468,21 +556,34 @@ class LLMAgent(AbstractLLMAgent):
             max_steps=max_steps,
         )
         logging.debug(f"Executing prompt: {prompt}")
-        next_step_response_stream = self._openai_client.chat.completions.create(
-            model=self._executor_model_name,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-        )
-        next_step_str = self._process_stream_until_complete(next_step_response_stream, live_print_to_stdout=False)
-        next_step_str = next_step_str.strip(" ").strip("-").strip("<").strip(">").strip('"')
-        logging.info(f"🤖 Next: {next_step_str}")
-        return next_step_str
+        next_step_response = self._communicate_with_llm(prompt=prompt, stream=False, return_response_content=False)
+        tool_calls = next_step_response.choices[0].message.tool_calls
+        if not tool_calls:
+            message_content = next_step_response.choices[0].message.content
+            logging.info(f"No tool call. Message: {message_content}; Tools:{tool_calls}")
+            return message_content, None, None
+
+        # Tool call
+        next_step_str = next_step_response.choices[0].message.content
+        tool_name = next_step_response.choices[0].message.tool_calls[0].function
+        tool_name = tool_name.name
+        tool_arguments = json.loads(next_step_response.choices[0].message.tool_calls[0].function.arguments)
+
+        logging.info(f"📜 Tool History: {json.dumps(self.tool_call_history, indent=4)}")
+        logging.info(f"🤖 Next Step:      {next_step_str}")
+        logging.info(f"🛠️ Tool Call:      {tool_name}")
+        logging.info(f"🛠️ Tool Arguments: {tool_arguments}")
+        return next_step_str, tool_name, tool_arguments
 
     @staticmethod
     def _process_stream_until_complete(stream, live_print_to_stdout: bool = False) -> str:
         """
         A helper method to process the stream of responses from the OpenAI API.
         """
+        if not isinstance(stream, openai.Stream):
+            # Not a streaming response
+            return stream.choices[0].message.content
+
         txt = ""
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
@@ -517,25 +618,26 @@ def main(
     max_steps: int,
     sleep_seconds_between_steps: float,
     use_jina: bool,
+    requires_manual_approval: bool = False,
+    summarize_intermediate_steps: bool = False,
 ):
     # Set up Docker API client
-    # docker_client: docker.DockerClient = docker.DockerClient()
-    docker_client: docker.DockerClient = docker.DockerClient(
-        # "unix:///Users/avi/.colima/default/docker.sock"
-    )
+    docker_client: docker.DockerClient = docker.DockerClient()
     if should_use_local_llm:
         openai_client: openai.OpenAI = openai.OpenAI(
             # Or, using ollama/llama.cpp server:
-            base_url="http://127.0.0.1:11434/v1",
+            base_url="http://localhost:11434/v1",
             api_key="test",
         )
     else:
         openai_client: openai.OpenAI = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
+    prompts: PromptBase = LlamaPrompts()
     agent = LLMAgent(
         docker_client=docker_client,
         openai_client=openai_client,
         use_jina=use_jina,
+        prompt=prompts,
         planner_model_name=planner_model_name,
         executor_model_name=executor_model_name,
     )
@@ -543,12 +645,27 @@ def main(
         user_query=user_query,
         max_steps=max_steps,
         sleep_seconds_between_steps=sleep_seconds_between_steps,
+        requires_manual_approval=requires_manual_approval,
+        summarize_intermediate_steps=summarize_intermediate_steps,
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LLM Agent")
-    parser.add_argument("--query", type=str, help="User query for the LLM Agent")
+    parser.add_argument(
+        "--file",
+        type=str,
+        help="A file containing the user prompt for the LLM Agent.",
+        default=None,
+        required=False,
+    )
+    parser.add_argument(
+        "--query",
+        type=str,
+        help="User query for the LLM Agent",
+        default=None,
+        required=False,
+    )
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument(
         "--planner",
@@ -584,7 +701,27 @@ if __name__ == "__main__":
         help="Instead of Selenium, use Jina AI free APIs to fetch page content. WARNING: Jina APIs might fail fetch certain websites.",
         action="store_true",
     )
+    parser.add_argument(
+        "--approve-plan",
+        help="Manually approve the plan of the LLM before execution.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--summarize-steps",
+        help="Summarize each step output instead of keeping it as-is. May benefit certain tasks.",
+        action="store_true",
+    )
+
     args = parser.parse_args()
+
+    if not args.file and not args.query:
+        raise ValueError("One of --file or --query must be specified.")
+    if args.file and args.query:
+        raise ValueError("ONLY ONE of --file or --query must be specified.")
+    user_query = args.query
+    if args.file:
+        with open(args.file, "r") as file:
+            user_query = file.read().strip()
 
     # Set OpenAI logging level
     if args.verbose:
@@ -597,25 +734,25 @@ if __name__ == "__main__":
     planner_model_name = args.planner
     executor_model_name = args.executor
     if args.local and (planner_model_name.startswith("gpt-") or executor_model_name.startswith("gpt-")):
-        print(
+        logging.error(
             f"""local backends doesn\'t support GPT models: planner="{planner_model_name}" \
-executor="{executor_model_name}"; Use gemma2 instead. """
+executor="{executor_model_name}"; Use llama3.1 instead. """
         )
-        sys.exit(1)
-
-    if not args.query:
-        print("Please provide a user query using --query")
         sys.exit(1)
 
     max_steps = args.steps
     sleep_seconds_between_steps = args.sleep
     use_jina = args.use_jina
+    approve_plan = args.approve_plan
+    summarize_steps = args.summarize_steps
     main(
-        args.query,
+        user_query,
         args.local,
         planner_model_name,
         executor_model_name,
         max_steps,
         sleep_seconds_between_steps,
         use_jina=use_jina,
+        requires_manual_approval=approve_plan,
+        summarize_intermediate_steps=summarize_steps,
     )
